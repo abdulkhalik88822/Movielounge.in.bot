@@ -23,13 +23,13 @@ db = mongo["movie_bot"]
 searches = db["searches"]
 
 # Admin Telegram ID
-ADMIN_ID = 2020224264  # Replace with your Telegram user ID
+ADMIN_ID = 6133440326  # Replace with your Telegram user ID
 
 # Bot Configuration
 BOT_TOKEN = "7851649379:AAEYbY9Hf_28LNfcbJ4cMSx8ivGYh-BxQ5Y"  # Replace with your bot token
-API_ID = 21956488  # Replace with your API ID
-API_HASH = "812529f879f06436925c7d62eb49f5d1"  # Replace with your API hash
-BOT_NAME = "RIYA"  # Replace with your bot's name
+API_ID = 24503270  # Replace with your API ID
+API_HASH = "53b04d58c085c3136ceda8036ee9a1da"  # Replace with your API hash
+BOT_NAME = "Movielunge.in"  # Replace with your bot's name
 
 # Laravel API Configuration
 LARAVEL_API_TOKEN = "002_TM_854_FYTDCS"  # Replace with your Laravel API token
