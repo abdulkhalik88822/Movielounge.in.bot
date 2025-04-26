@@ -18,7 +18,7 @@ import threading
 logging.basicConfig(level=logging.INFO)
 
 # MongoDB Setup
-mongo = MongoClient("mongodb+srv://TMDBAPI:9837626609@cluster0.pylldjn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+mongo = MongoClient("mongodb+srv://kailash:pass@cluster0.sqtztxm.mongodb.net/?retryWrites=true&w=majority")
 db = mongo["movie_bot"]
 searches = db["searches"]
 
