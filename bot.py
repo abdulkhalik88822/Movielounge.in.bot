@@ -26,7 +26,7 @@ searches = db["searches"]
 ADMIN_ID = 2020224264  # Replace with your Telegram user ID
 
 # Bot Configuration
-BOT_TOKEN = "7838774133:AAEINIrFIEeQtYHTXiGvTZJ-PNgLGgLN74Q"  # Replace with your bot token
+BOT_TOKEN = "7851649379:AAEYbY9Hf_28LNfcbJ4cMSx8ivGYh-BxQ5Y"  # Replace with your bot token
 API_ID = 21956488  # Replace with your API ID
 API_HASH = "812529f879f06436925c7d62eb49f5d1"  # Replace with your API hash
 BOT_NAME = "RIYA"  # Replace with your bot's name
