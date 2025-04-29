@@ -136,7 +136,7 @@ async def start(client, message: Message):
     )
     
     # Placeholder image URL (replace with your own image URL)
-    image_url = "https://i.imgur.com/YourImageHere.jpg"  # Replace this with your actual image URL
+    image_url = "https://telegra.ph/file/5d32303d074c709406576.jpg"  # Replace this with your actual image URL
     
     # Inline buttons
     buttons = [
@@ -146,7 +146,7 @@ async def start(client, message: Message):
         ],
         [
             InlineKeyboardButton("DB Status", callback_data="db_status"),
-            InlineKeyboardButton("Developer Support", url="https://t.me/YourSupportLink"),  # Replace with your support link
+            InlineKeyboardButton("Developer Support", url="https://t.me/Attitude2688"),  # Replace with your support link
         ]
     ]
     
