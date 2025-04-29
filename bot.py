@@ -11,12 +11,19 @@ import socket
 import sys
 import threading
 import os
+import re
+import asyncio
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO)
 
 # MongoDB Setup
-mongo = MongoClient("mongodb+srv://kailash:pass@cluster0.sqtztxm.mongodb.net/?retryWrites=true&w=majority")
+MONGO_URI = os.getenv("MONGO_URI")  # Store in .env file
+mongo = MongoClient(MONGO_URI)
 db = mongo["movie_bot"]
 searches = db["searches"]
 
@@ -24,13 +31,13 @@ searches = db["searches"]
 ADMIN_ID = 6133440326  # Replace with your Telegram user ID
 
 # Bot Configuration
-BOT_TOKEN = "7851649379:AAEYbY9Hf_28LNfcbJ4cMSx8ivGYh-BxQ5Y"  # Replace with your bot token
-API_ID = 24503270  # Replace with your API ID
-API_HASH = "53b04d58c085c3136ceda8036ee9a1da"  # Replace with your API hash
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Store in .env file
+API_ID = int(os.getenv("API_ID"))  # Store in .env file
+API_HASH = os.getenv("API_HASH")  # Store in .env file
 BOT_NAME = "Movielunge.in"  # Replace with your bot's name
 
 # Laravel API Configuration
-LARAVEL_API_TOKEN = "002_TM_854_FYTDCS"  # Replace with your Laravel API token
+LARAVEL_API_TOKEN = os.getenv("LARAVEL_API_TOKEN")  # Store in .env file
 LARAVEL_API_URL = "https://api.cinema4u.xyz/api"
 search_results = {}
 
@@ -51,7 +58,7 @@ def health_check():
 
 # TMDB setup
 tmdb = TMDb()
-tmdb.api_key = "c64a889556107e0f7e0d2c00966fffa1"
+tmdb.api_key = os.getenv("TMDB_API_KEY")  # Store in .env file
 tmdb.language = "en"
 movie = Movie()
 tv = TV()
@@ -146,7 +153,7 @@ async def api_command(client: Client, message: Message):
     status = "✅ Connected" if site_connected else "❌ Not Connected"
     await message.reply(f"🔍 Site connection status: {status}")
 
-# Search handler
+# Search handler with year handling
 @app.on_message(filters.text & ~filters.command(["start", "api"]))
 async def search_movie_or_tv(client, message: Message):
     if not site_connected:
@@ -178,24 +185,64 @@ async def search_movie_or_tv(client, message: Message):
 
     loading_msg = await message.reply("**AI is finding your result...**")
 
+    # Step 1: Extract movie title and year from the query using regex
+    year_match = re.search(r'\b(\d{4})\b', query)  # Look for a 4-digit year
+    search_year = year_match.group(1) if year_match else None
+    # Remove the year from the query to search only the title
+    search_query = re.sub(r'\b\d{4}\b', '', query).strip().lower()
+
+    if not search_query:
+        await loading_msg.edit("⚠️ Please provide a valid movie or TV show name.")
+        return
+
+    # Step 2: Search TMDB using the cleaned query (title only)
     try:
-        movie_results = movie.search(query)
-        tv_results = tv.search(query)
+        movie_results = movie.search(search_query)
+        tv_results = tv.search(search_query)
         results = movie_results + tv_results
     except Exception as e:
-        logging.error(f"TMDb search failed: {e}")
-        return await loading_msg.edit("⚠️ Error while searching. Please try again later.")
+        logging.error(f"TMDb search failed for query '{search_query}': {e}")
+        await loading_msg.edit("⚠️ Error while searching. Please try again later.")
+        return
 
     if not results:
-        return await loading_msg.edit("😕 No matching results found.")
+        await loading_msg.edit("😕 No matching results found.")
+        return
 
-    result_ids = [r.id for r in results]
-    result_types = ["movie" if r in movie_results else "tv" for r in results]
+    # Step 3: Filter results based on the year (if provided)
+    filtered_results = []
+    result_types = []
+    if search_year:
+        for result in results:
+            release_date = getattr(result, 'release_date', None) or getattr(result, 'first_air_date', None)
+            if release_date:
+                result_year = release_date[:4]
+                if result_year == search_year:
+                    filtered_results.append(result)
+                    result_types.append("movie" if result in movie_results else "tv")
+    else:
+        # If no year is provided, use all results
+        filtered_results = results
+        result_types = ["movie" if r in movie_results else "tv" for r in results]
 
+    # Step 4: If no exact year match but results exist, show closest matches with a message
+    if not filtered_results and results and search_year:
+        await loading_msg.edit(
+            f"⚠️ No results found for '{search_query}' in {search_year}. Showing closest matches instead:"
+        )
+        filtered_results = results
+        result_types = ["movie" if r in movie_results else "tv" for r in results]
+
+    if not filtered_results:
+        await loading_msg.edit("😕 No matching results found.")
+        return
+
+    result_ids = [r.id for r in filtered_results]
     search_results[user_id] = {
         "results": result_ids,
         "types": result_types,
-        "current_index": 0
+        "current_index": 0,
+        "timestamp": time.time()  # Add timestamp for cleanup
     }
 
     await send_result(client, message.chat.id, user_id, 0, loading_msg)
@@ -277,9 +324,18 @@ async def handle_pagination(client, callback_query):
     await callback_query.message.delete()
     await send_result(client, callback_query.message.chat.id, user_id, current_index, callback_query.message)
 
+# Cleanup old search results
+async def cleanup_search_results():
+    while True:
+        await asyncio.sleep(3600)  # Run hourly
+        current_time = time.time()
+        for user_id in list(search_results.keys()):
+            if current_time - search_results[user_id].get("timestamp", 0) > 3600:
+                del search_results[user_id]
+
 # Flask server runner
 def run_flask():
-    port = int(os.environ.get("PORT", 5000))  # <-- fixed here
+    port = int(os.environ.get("PORT", 5000))
     flask_app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 # Start Flask and Bot
@@ -287,6 +343,8 @@ if __name__ == "__main__":
     try:
         check_site_connection()
         Thread(target=run_flask).start()
+        # Start cleanup task in the background
+        asyncio.create_task(cleanup_search_results())
         app.run()
     except Exception as e:
         logging.error(f"An error occurred: {e}")
