@@ -49,7 +49,7 @@ app = Client(
     api_hash=API_HASH
 )
 
-# Flask server for health check
+# Flask server for health check (optional for Heroku worker)
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
@@ -333,7 +333,7 @@ async def cleanup_search_results():
             if current_time - search_results[user_id].get("timestamp", 0) > 3600:
                 del search_results[user_id]
 
-# Flask server runner
+# Flask server runner (optional for Heroku worker)
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
     flask_app.run(host="0.0.0.0", port=port, use_reloader=False)
@@ -342,7 +342,8 @@ def run_flask():
 if __name__ == "__main__":
     try:
         check_site_connection()
-        Thread(target=run_flask).start()
+        # Commenting out Flask server as it's not needed for Heroku worker
+        # Thread(target=run_flask).start()
         # Start cleanup task in the background
         asyncio.create_task(cleanup_search_results())
         app.run()
