@@ -1,4 +1,4 @@
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from tmdbv3api import TMDb, Movie, TV
 from flask import Flask
@@ -324,7 +324,7 @@ async def handle_pagination(client, callback_query):
     await callback_query.message.delete()
     await send_result(client, callback_query.message.chat.id, user_id, current_index, callback_query.message)
 
-# Cleanup old search results
+# Cleanup old search results (run within Pyrogram's event loop)
 async def cleanup_search_results():
     while True:
         await asyncio.sleep(3600)  # Run hourly
@@ -338,14 +338,17 @@ def run_flask():
     port = int(os.environ.get("PORT", 5000))
     flask_app.run(host="0.0.0.0", port=port, use_reloader=False)
 
-# Start Flask and Bot
+# Start Bot and Cleanup Task
 if __name__ == "__main__":
     try:
         check_site_connection()
-        # Commenting out Flask server as it's not needed for Heroku worker
-        # Thread(target=run_flask).start()
-        # Start cleanup task in the background
-        asyncio.create_task(cleanup_search_results())
-        app.run()
+        # Start the bot
+        app.start()
+        # Run cleanup_search_results within Pyrogram's event loop
+        app.loop.create_task(cleanup_search_results())
+        # Keep the bot running
+        idle()
+        # Stop the bot gracefully
+        app.stop()
     except Exception as e:
         logging.error(f"An error occurred: {e}")
