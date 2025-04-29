@@ -1,8 +1,7 @@
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from tmdbv3api import TMDb, Movie, TV
-from flask import Flask
-from threading import Thread
+from tmdbv3api.exceptions import TMDbException
 from pymongo import MongoClient
 import logging
 import requests
@@ -48,13 +47,6 @@ app = Client(
     api_id=API_ID,
     api_hash=API_HASH
 )
-
-# Flask server for health check (optional for Heroku worker)
-flask_app = Flask(__name__)
-
-@flask_app.route('/')
-def health_check():
-    return 'OK BOT IS WORKING MODE', 200
 
 # TMDB setup
 tmdb = TMDb()
@@ -130,12 +122,92 @@ def check_site_connection():
             print(f"🚨 [Admin ID: {ADMIN_ID}] All retry attempts failed. Bypassing this connection attempt.")
             return
 
-# Start command handler
+# Start command handler with custom message, image, and buttons
 @app.on_message(filters.command("start"))
-async def start(client, message):
-    await message.reply("Hello! Send me a movie or TV show name and I’ll find it for you.")
+async def start(client, message: Message):
+    user_name = message.from_user.first_name  # Get user's first name
+    # Custom message with user's name
+    welcome_message = (
+        f"👋 Hᴇʟʟᴏ, {user_name}!\n\n"
+        f"🎥 I'ᴍ ʏᴏᴜʀ ᴘᴇʀsᴏɴᴀʟ Mᴏᴠɪᴇ & TV Sʜᴏᴡ ᴀssɪsᴛᴀɴᴛ. "
+        f"Jᴜsᴛ ᴛʏᴘᴇ ᴛʜᴇ ɴᴀᴍᴇ ᴏғ ᴀɴʏ ᴍᴏᴠɪᴇ ᴏʀ sᴇʀɪᴇs, "
+        f"ᴀɴᴅ I’ʟʟ ғᴇᴛᴄʜ ᴅᴇᴛᴀɪʟs ɪɴsᴛᴀɴᴛʟʏ.\n\n"
+        f"🚀 Lᴇᴛ's ɢᴇᴛ sᴛᴀʀᴛᴇᴅ!"
+    )
+    
+    # Placeholder image URL (replace with your own image URL)
+    image_url = "https://i.imgur.com/YourImageHere.jpg"  # Replace this with your actual image URL
+    
+    # Inline buttons
+    buttons = [
+        [
+            InlineKeyboardButton("Add me in group", url=f"https://t.me/{BOT_NAME}?startgroup=true"),
+            InlineKeyboardButton("API Status", callback_data="api_status"),
+        ],
+        [
+            InlineKeyboardButton("DB Status", callback_data="db_status"),
+            InlineKeyboardButton("Developer Support", url="https://t.me/YourSupportLink"),  # Replace with your support link
+        ]
+    ]
+    
+    # Send the welcome message with image and buttons
+    await client.send_photo(
+        chat_id=message.chat.id,
+        photo=image_url,
+        caption=welcome_message,
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
-# Admin-only /api command
+# Callback query handler for buttons
+@app.on_callback_query()
+async def handle_callback(client, callback_query):
+    user_id = callback_query.from_user.id
+    data = callback_query.data
+
+    # Handle API Status button
+    if data == "api_status":
+        if user_id != ADMIN_ID:
+            await callback_query.answer("🚫 You are not authorized to check API status.", show_alert=True)
+            return
+        check_site_connection()
+        status = "✅ Connected" if site_connected else "❌ Not Connected"
+        await callback_query.message.reply(f"🔍 API connection status: {status}")
+        return
+
+    # Handle DB Status button
+    if data == "db_status":
+        if user_id != ADMIN_ID:
+            await callback_query.answer("🚫 You are not authorized to check DB status.", show_alert=True)
+            return
+        try:
+            # Check MongoDB connection
+            mongo.server_info()
+            await callback_query.message.reply("✅ Database is connected.")
+        except Exception as e:
+            await callback_query.message.reply(f"❌ Database error: {str(e)}")
+        return
+
+    # Handle pagination (existing functionality)
+    user_id = callback_query.from_user.id
+    data = search_results.get(user_id)
+    if not data:
+        await callback_query.answer("No search data found.", show_alert=True)
+        return
+
+    current_index = data.get("current_index", 0)
+    if callback_query.data == "next":
+        current_index += 5
+    elif callback_query.data == "prev":
+        current_index -= 5
+    else:
+        await callback_query.answer("Invalid action.", show_alert=True)
+        return
+
+    search_results[user_id]["current_index"] = current_index
+    await callback_query.message.delete()
+    await send_result(client, callback_query.message.chat.id, user_id, current_index, callback_query.message)
+
+# Admin-only /api command (existing functionality)
 @app.on_message(filters.command("api"))
 async def api_command(client: Client, message: Message):
     user_id = message.from_user.id
@@ -195,11 +267,15 @@ async def search_movie_or_tv(client, message: Message):
         await loading_msg.edit("⚠️ Please provide a valid movie or TV show name.")
         return
 
-    # Step 2: Search TMDB using the cleaned query (title only)
+    # Step 2: Search TMDB using the cleaned query (title only) with better error handling
     try:
         movie_results = movie.search(search_query)
         tv_results = tv.search(search_query)
         results = movie_results + tv_results
+    except TMDbException as e:
+        logging.error(f"TMDb API error: {e}")
+        await loading_msg.edit(f"⚠️ TMDB API error: {e}. Please try again later.")
+        return
     except Exception as e:
         logging.error(f"TMDb search failed for query '{search_query}': {e}")
         await loading_msg.edit("⚠️ Error while searching. Please try again later.")
@@ -247,7 +323,7 @@ async def search_movie_or_tv(client, message: Message):
 
     await send_result(client, message.chat.id, user_id, 0, loading_msg)
 
-# Send result
+# Send result with better error handling for TMDB details
 async def send_result(client, chat_id, user_id, index, loading_msg):
     data = search_results.get(user_id)
     if not data:
@@ -267,10 +343,19 @@ async def send_result(client, chat_id, user_id, index, loading_msg):
 
         res_id = result_ids[index + i]
         res_type = result_types[index + i]
-        full_details = movie.details(res_id) if res_type == "movie" else tv.details(res_id)
-        title = full_details.title if res_type == "movie" else full_details.name
-        release_date = full_details.release_date if res_type == "movie" else full_details.first_air_date
-        year = release_date[:4] if release_date else "N/A"
+        try:
+            full_details = movie.details(res_id) if res_type == "movie" else tv.details(res_id)
+            title = full_details.title if res_type == "movie" else full_details.name
+            release_date = full_details.release_date if res_type == "movie" else full_details.first_air_date
+            year = release_date[:4] if release_date else "N/A"
+        except TMDbException as e:
+            logging.error(f"TMDb API error while fetching details for ID {res_id}: {e}")
+            await client.send_message(chat_id, f"⚠️ TMDB API error: {e}. Skipping this result.")
+            continue
+        except Exception as e:
+            logging.error(f"Error fetching details for ID {res_id}: {e}")
+            await client.send_message(chat_id, "⚠️ Error fetching details. Skipping this result.")
+            continue
 
         button_text = f"{title} ({year})"
         button_url = f"https://movielounge.in/best/result/x/{res_id}/{res_type.lower()}"
@@ -286,12 +371,21 @@ async def send_result(client, chat_id, user_id, index, loading_msg):
 
     res_id = result_ids[index]
     res_type = result_types[index]
-    full_details = movie.details(res_id) if res_type == "movie" else tv.details(res_id)
-    title = full_details.title if res_type == "movie" else full_details.name
-    release_date = full_details.release_date if res_type == "movie" else full_details.first_air_date
-    year = release_date[:4] if release_date else "N/A"
-    genres = ", ".join([g.name for g in full_details.genres]) if full_details.genres else "Unknown"
-    poster_url = f"https://image.tmdb.org/t/p/w500{full_details.poster_path}" if full_details.poster_path else None
+    try:
+        full_details = movie.details(res_id) if res_type == "movie" else tv.details(res_id)
+        title = full_details.title if res_type == "movie" else full_details.name
+        release_date = full_details.release_date if res_type == "movie" else full_details.first_air_date
+        year = release_date[:4] if release_date else "N/A"
+        genres = ", ".join([g.name for g in full_details.genres]) if full_details.genres else "Unknown"
+        poster_url = f"https://image.tmdb.org/t/p/w500{full_details.poster_path}" if full_details.poster_path else None
+    except TMDbException as e:
+        logging.error(f"TMDb API error while fetching details for ID {res_id}: {e}")
+        await loading_msg.edit(f"⚠️ TMDB API error: {e}. Cannot display this result.")
+        return
+    except Exception as e:
+        logging.error(f"Error fetching details for ID {res_id}: {e}")
+        await loading_msg.edit("⚠️ Error fetching details. Cannot display this result.")
+        return
 
     caption = f"**{title}** ({year})\n\n**Genres:** {genres}"
 
@@ -302,28 +396,6 @@ async def send_result(client, chat_id, user_id, index, loading_msg):
 
     await loading_msg.delete()
 
-# Pagination
-@app.on_callback_query()
-async def handle_pagination(client, callback_query):
-    user_id = callback_query.from_user.id
-    data = search_results.get(user_id)
-    if not data:
-        await callback_query.answer("No search data found.", show_alert=True)
-        return
-
-    current_index = data.get("current_index", 0)
-    if callback_query.data == "next":
-        current_index += 5
-    elif callback_query.data == "prev":
-        current_index -= 5
-    else:
-        await callback_query.answer("Invalid action.", show_alert=True)
-        return
-
-    search_results[user_id]["current_index"] = current_index
-    await callback_query.message.delete()
-    await send_result(client, callback_query.message.chat.id, user_id, current_index, callback_query.message)
-
 # Cleanup old search results (run within Pyrogram's event loop)
 async def cleanup_search_results():
     while True:
@@ -332,11 +404,6 @@ async def cleanup_search_results():
         for user_id in list(search_results.keys()):
             if current_time - search_results[user_id].get("timestamp", 0) > 3600:
                 del search_results[user_id]
-
-# Flask server runner (optional for Heroku worker)
-def run_flask():
-    port = int(os.environ.get("PORT", 5000))
-    flask_app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 # Start Bot and Cleanup Task
 if __name__ == "__main__":
