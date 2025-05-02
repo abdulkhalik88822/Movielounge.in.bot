@@ -133,9 +133,9 @@ async def start(client, message: Message):
         f"Jᴜsᴛ ᴛʏᴘᴇ ᴛʜᴇ ɴᴀᴍᴇ ᴏғ ᴀɴʏ ᴍᴏᴠɪᴇ ᴏʀ sᴇʀɪᴇs, "
         f"ᴀɴᴅ I’ʟʟ ғᴇᴛᴄʜ ᴅᴇᴛᴀɪʟs ɪɴsᴛᴀɴᴛʟʏ.\n\n"
         f"🚀 Lᴇᴛ's ɢᴇᴛ sᴛᴀʀᴛᴇᴅ!\n\n"
-        f"🙌 **Credits**:\n"
-        f"👨‍💻 **Dᴇᴠᴇʟᴏᴘᴇʀ**: [Vansh](https://t.me/none_090)\n"  # Replace with actual name and Telegram link
-        f"👑 **Oᴡɴᴇʀ**: [Abdul Khalik](https://t.me/Attitude2688)"  # Replace with actual name and Telegram link
+        f"🙌 **Cʀᴇᴅɪᴛs**:\n"
+        f"👨‍💻 **Dᴇᴠᴇʟᴏᴘᴇʀ**: [Vansh](https://t.me/none_090)\n" 
+        f"👑 **Oᴡɴᴇʀ**: [Abdul Khalik](https://t.me/Attitude2688)"
     )
     
     # Placeholder image URL (replace with your own image URL)
@@ -143,12 +143,12 @@ async def start(client, message: Message):
     
     # Inline buttons
     buttons = [
-        [InlineKeyboardButton("Add me in group", url=f"https://t.me/{BOT_NAME}?startgroup=true")],
+        [InlineKeyboardButton("Aᴅᴅ ᴍᴇ ɪɴ ɢʀᴏᴜᴘ", url=f"https://t.me/{BOT_NAME}?startgroup=true")],
         [
-            InlineKeyboardButton("API Status", callback_data="api_status"),
-            InlineKeyboardButton("DB Status", callback_data="db_status")
+            InlineKeyboardButton("API Sᴛᴀᴛᴜs", callback_data="api_status"),
+            InlineKeyboardButton("DB Sᴛᴀᴛᴜs", callback_data="db_status")
         ],
-        [InlineKeyboardButton("Bᴏᴛ Dᴇᴠᴇʟᴏᴘᴇʀ", url="https://t.me/Attitude2688")]  # Replace with your support link
+        [InlineKeyboardButton("Bᴏᴛ Dᴇᴠᴇʟᴏᴘᴇʀ", url="https://t.me/none_090")]  # Replace with your support link
     ]
     
     # Send the welcome message with image and buttons
