@@ -13,7 +13,6 @@ import os
 import re
 import asyncio
 from dotenv import load_dotenv
-from pyrogram.types import InputMediaPhoto
 
 # Load environment variables
 load_dotenv()
@@ -31,9 +30,6 @@ searches = db["searches"]
 ADMIN_ID = 6133440326  # Replace with your Telegram user ID
 
 # Bot Configuration
-BOT_NAME = "Movielunge.in"
-BOT_OWNER_ID = 6133440326
-BOT_DEVELOPER_ID = 2020224264
 BOT_TOKEN = os.getenv("BOT_TOKEN")  # Store in .env file
 API_ID = int(os.getenv("API_ID"))  # Store in .env file
 API_HASH = os.getenv("API_HASH")  # Store in .env file
@@ -126,31 +122,33 @@ def check_site_connection():
             print(f"🚨 [Admin ID: {ADMIN_ID}] All retry attempts failed. Bypassing this connection attempt.")
             return
 
+# Start command handler with custom message, image, and buttons
 @app.on_message(filters.command("start"))
 async def start(client, message: Message):
-    user_name = message.from_user.first_name or "User"  # Get user's first name, fallback to "User"
-    # Custom message with user's name
+    user_name = message.from_user.first_name  # Get user's first name
+    # Custom message with user's name and credits
     welcome_message = (
         f"👋 Hᴇʟʟᴏ, {user_name}!\n\n"
         f"🎥 I'ᴍ ʏᴏᴜʀ ᴘᴇʀsᴏɴᴀʟ Mᴏᴠɪᴇ & TV Sʜᴏᴡ ᴀssɪsᴛᴀɴᴛ. "
         f"Jᴜsᴛ ᴛʏᴘᴇ ᴛʜᴇ ɴᴀᴍᴇ ᴏғ ᴀɴʏ ᴍᴏᴠɪᴇ ᴏʀ sᴇʀɪᴇs, "
         f"ᴀɴᴅ I’ʟʟ ғᴇᴛᴄʜ ᴅᴇᴛᴀɪʟs ɪɴsᴛᴀɴᴛʟʏ.\n\n"
-        f"🚀 Lᴇᴛ's ɢᴇᴛ sᴛᴀʀᴛᴇᴅ!"
+        f"🚀 Lᴇᴛ's ɢᴇᴛ sᴛᴀʀᴛᴇᴅ!\n\n"
+        f"🙌 **Credits**:\n"
+        f"👨‍💻 **Dᴇᴠᴇʟᴏᴘᴇʀ**: [Vansh](https://t.me/none_090)\n"  # Replace with actual name and Telegram link
+        f"👑 **Oᴡɴᴇʀ**: [Abdul Khalik](https://t.me/Attitude2688)"  # Replace with actual name and Telegram link
     )
     
     # Placeholder image URL (replace with your own image URL)
-    image_url = "https://telegra.ph/file/5d32303d074c709406576.jpg"  # Replace with your actual image URL
+    image_url = "https://telegra.ph/file/5d32303d074c709406576.jpg"  # Replace this with your actual image URL
     
     # Inline buttons
     buttons = [
+        [InlineKeyboardButton("Add me in group", url=f"https://t.me/{BOT_NAME}?startgroup=true")],
         [
-            InlineKeyboardButton("Add me in group", url=f"https://t.me/{BOT_NAME}?startgroup=true"),
             InlineKeyboardButton("API Status", callback_data="api_status"),
+            InlineKeyboardButton("DB Status", callback_data="db_status")
         ],
-        [
-            InlineKeyboardButton("DB Status", callback_data="db_status"),
-            InlineKeyboardButton("Developer Support", callback_data="developer_support"),
-        ]
+        [InlineKeyboardButton("Bᴏᴛ Dᴇᴠᴇʟᴏᴘᴇʀ", url="https://t.me/Attitude2688")]  # Replace with your support link
     ]
     
     # Send the welcome message with image and buttons
@@ -160,88 +158,7 @@ async def start(client, message: Message):
         caption=welcome_message,
         reply_markup=InlineKeyboardMarkup(buttons)
     )
-
-# Callback query handler for button clicks
-@app.on_callback_query()
-async def handle_callback_query(client, callback_query):
-    data = callback_query.data
-    chat_id = callback_query.message.chat.id
-    message_id = callback_query.message.id
     
-    if data == "developer_support":
-        # Beautiful caption for Developer Support
-        support_caption = (
-            "🌟 **Developer Support** 🌟\n\n"
-            "We're here to assist you! Connect with our amazing team:\n"
-            "👨‍💻 **Bot Owner**: The visionary behind this bot.\n"
-            "🛠 **Bot Developer**: The tech wizard who coded it.\n\n"
-            "Choose an option below or go back to the main menu."
-        )
-        
-        # New buttons for Bot Owner, Bot Developer, and Back using user IDs
-        support_buttons = [
-            [
-                InlineKeyboardButton(
-                    "Bot Owner", 
-                    url=f"tg://user?id={BOT_OWNER_ID}"
-                ),
-                InlineKeyboardButton(
-                    "Bot Developer", 
-                    url=f"tg://user?id={BOT_DEVELOPER_ID}"
-                ),
-            ],
-            [
-                InlineKeyboardButton("🔙 Back", callback_data="back_to_start"),
-            ]
-        ]
-        
-        # Edit the message with new caption and buttons
-        await client.edit_message_caption(
-            chat_id=chat_id,
-            message_id=message_id,
-            caption=support_caption,
-            reply_markup=InlineKeyboardMarkup(support_buttons),
-            parse_mode="Markdown"
-        )
-    
-    elif data == "back_to_start":
-        # Restore the original welcome message and buttons
-        user_name = callback_query.from_user.first_name or "User"
-        welcome_message = (
-            f"👋 Hᴇʟʟᴏ, {user_name}!\n\n"
-            f"🎥 I'ᴍ ʏᴏᴜʀ ᴘᴇʀsᴏɴᴀʟ Mᴏᴠɪᴇ & TV Sʜᴏᴡ ᴀssɪsᴛᴀɴᴛ. "
-            f"Jᴜsᴛ ᴛʏᴘᴇ ᴛʜᴇ ɴᴀᴍᴇ ᴏғ ᴀɴʏ ᴍᴏᴠɪᴇ ᴏʀ sᴇʀɪᴇs, "
-            f"ᴀɴᴅ I’ʟʟ ғᴇᴛᴄʜ ᴅᴇᴛᴀɪʟs ɪɴsᴛᴀɴᴛʟʏ.\n\n"
-            f"🚀 Lᴇᴛ's ɢᴇᴛ sᴛᴀʀᴛᴇᴅ!"
-        )
-        
-        # Original buttons
-        buttons = [
-            [
-                InlineKeyboardButton("Add me in group", url=f"https://t.me/{BOT_NAME}?startgroup=true"),
-                InlineKeyboardButton("API Status", callback_data="api_status"),
-            ],
-            [
-                InlineKeyboardButton("DB Status", callback_data="db_status"),
-                InlineKeyboardButton("Developer Support", callback_data="developer_support"),
-            ]
-        ]
-        
-        # Edit the message back to the original welcome message with buttons
-        await client.edit_message_media(
-            chat_id=chat_id,
-            message_id=message_id,
-            media=InputMediaPhoto(
-                media="https://telegra.ph/file/5d32303d074c709406576.jpg",  # Restore original image
-                caption=welcome_message
-            ),
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-    
-    # Acknowledge the callback query
-    await callback_query.answer()
-
-
 # Callback query handler for buttons
 @app.on_callback_query()
 async def handle_callback(client, callback_query):
