@@ -248,7 +248,7 @@ async def search_movie_or_tv(client, message: Message):
 
     try:
         requests.post(
-            "https://api.cinema4u.xyz/api/log-search",
+            "https://api.vegamovies4.link/api/log-search",
             json={"user_id": user_id, "username": username, "query": query},
             headers=headers,
             timeout=10
@@ -359,7 +359,7 @@ async def send_result(client, chat_id, user_id, index, loading_msg):
             continue
 
         button_text = f"{title} ({year})"
-        button_url = f"https://movielounge.in/best/result/x/{res_id}/{res_type.lower()}"
+        button_url = f"https://vegamovies4.link/best/result/x/{res_id}/{res_type.lower()}"
         buttons.append([InlineKeyboardButton(button_text, url=button_url)])
 
     nav_buttons = []
