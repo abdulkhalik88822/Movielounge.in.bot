@@ -134,7 +134,7 @@ async def start(client, message: Message):
         f"ᴀɴᴅ I’ʟʟ ғᴇᴛᴄʜ ᴅᴇᴛᴀɪʟs ɪɴsᴛᴀɴᴛʟʏ.\n\n"
         f"🚀 Lᴇᴛ's ɢᴇᴛ sᴛᴀʀᴛᴇᴅ!\n\n"
         f"🙌 **Cʀᴇᴅɪᴛs**:\n"
-        f"👨‍💻 **Dᴇᴠᴇʟᴏᴘᴇʀ**: [Vansh](https://t.me/none_090)\n" 
+        f"👨‍💻 **Dᴇᴠᴇʟᴏᴘᴇʀ**: [Abdul khalik](https://t.me/Attitude2688)\n" 
         f"👑 **Oᴡɴᴇʀ**: [Abdul Khalik](https://t.me/Attitude2688)"
     )
     
@@ -148,7 +148,7 @@ async def start(client, message: Message):
             InlineKeyboardButton("API Sᴛᴀᴛᴜs", callback_data="api_status"),
             InlineKeyboardButton("DB Sᴛᴀᴛᴜs", callback_data="db_status")
         ],
-        [InlineKeyboardButton("Bᴏᴛ Dᴇᴠᴇʟᴏᴘᴇʀ", url="https://t.me/none_090")]  # Replace with your support link
+        [InlineKeyboardButton("Bᴏᴛ Dᴇᴠᴇʟᴏᴘᴇʀ", url="https://t.me/Attitude2688")]  # Replace with your support link
     ]
     
     # Send the welcome message with image and buttons
