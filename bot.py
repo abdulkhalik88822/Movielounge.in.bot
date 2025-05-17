@@ -37,7 +37,7 @@ BOT_NAME = "DD_search_movie_bot"  # Replace with your bot's name
 
 # Laravel API Configuration
 LARAVEL_API_TOKEN = os.getenv("LARAVEL_API_TOKEN")  # Store in .env file
-LARAVEL_API_URL = "https://api.hindicinema.xyz/api"
+LARAVEL_API_URL = "https://api.cinema4u.xyz/api"
 search_results = {}
 
 # Pyrogram Client
