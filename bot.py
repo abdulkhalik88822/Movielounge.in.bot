@@ -33,11 +33,11 @@ ADMIN_ID = 6133440326  # Replace with your Telegram user ID
 BOT_TOKEN = os.getenv("BOT_TOKEN")  # Store in .env file
 API_ID = int(os.getenv("API_ID"))  # Store in .env file
 API_HASH = os.getenv("API_HASH")  # Store in .env file
-BOT_NAME = "Movielunge.in"  # Replace with your bot's name
+BOT_NAME = "DD_search_movie_bot"  # Replace with your bot's name
 
 # Laravel API Configuration
 LARAVEL_API_TOKEN = os.getenv("LARAVEL_API_TOKEN")  # Store in .env file
-LARAVEL_API_URL = "https://api.cinema4u.xyz/api"
+LARAVEL_API_URL = "https://api.hindicinema.xyz/api"
 search_results = {}
 
 # Pyrogram Client
@@ -248,7 +248,7 @@ async def search_movie_or_tv(client, message: Message):
 
     try:
         requests.post(
-            "https://api.vegamovies4.link/api/log-search",
+            "https://api.hindicinema.xyz/api/log-search",
             json={"user_id": user_id, "username": username, "query": query},
             headers=headers,
             timeout=10
@@ -359,7 +359,7 @@ async def send_result(client, chat_id, user_id, index, loading_msg):
             continue
 
         button_text = f"{title} ({year})"
-        button_url = f"https://vegamovies4.link/best/result/x/{res_id}/{res_type.lower()}"
+        button_url = f"https://hindicinema.xyz/best/result/x/{res_id}/{res_type.lower()}"
         buttons.append([InlineKeyboardButton(button_text, url=button_url)])
 
     nav_buttons = []
