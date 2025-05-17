@@ -174,15 +174,27 @@ async def start(client, message: Message):
     )
 
 # Broadcast command handler
+# Broadcast command handler
 @app.on_message(filters.command("broadcast") & filters.user(ADMIN_ID))
 async def broadcast(client: Client, message: Message):
     if message.from_user.id != ADMIN_ID:
         await message.reply("🚫 You are not authorized to use this command.")
         return
 
-    # Check if there's a message or photo
-    broadcast_message = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else None
-    if not broadcast_message and not message.photo:
+    # Extract the broadcast message (caption or text)
+    broadcast_message = None
+    if message.caption:  # For photos, check the caption
+        caption_parts = message.caption.split(maxsplit=1)
+        if len(caption_parts) > 1:  # If there's text after /broadcast
+            broadcast_message = caption_parts[1]
+        # If caption is just "/broadcast", broadcast_message remains None, but photo should still be broadcast
+    elif message.text:  # For text-only messages
+        text_parts = message.text.split(maxsplit=1)
+        if len(text_parts) > 1:
+            broadcast_message = text_parts[1]
+
+    # Check if there's a valid broadcast (either a photo or text)
+    if not message.photo and not broadcast_message:
         await message.reply("⚠️ Usage: /broadcast <message> or send a photo with an optional caption.")
         return
 
@@ -212,7 +224,7 @@ async def broadcast(client: Client, message: Message):
                 await client.send_photo(
                     chat_id=user_id,
                     photo=message.photo.file_id,
-                    caption=broadcast_message or ""
+                    caption=broadcast_message if broadcast_message else ""
                 )
             else:
                 # Broadcast text message
