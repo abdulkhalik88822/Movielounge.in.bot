@@ -21,22 +21,23 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 # MongoDB Setup
-MONGO_URI = os.getenv("MONGO_URI")  # Store in .env file
+MONGO_URI = os.getenv("MONGO_URI")
 mongo = MongoClient(MONGO_URI)
 db = mongo["movie_bot"]
 searches = db["searches"]
+users = db["users"]  # NEW: Collection for storing user data
 
 # Admin Telegram ID
-ADMIN_ID = 6133440326  # Replace with your Telegram user ID
+ADMIN_ID = 6133440326
 
 # Bot Configuration
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Store in .env file
-API_ID = int(os.getenv("API_ID"))  # Store in .env file
-API_HASH = os.getenv("API_HASH")  # Store in .env file
-BOT_NAME = "DD_search_movie_bot"  # Replace with your bot's name
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_NAME = "DD_search_movie_bot"
 
 # Laravel API Configuration
-LARAVEL_API_TOKEN = os.getenv("LARAVEL_API_TOKEN")  # Store in .env file
+LARAVEL_API_TOKEN = os.getenv("LARAVEL_API_TOKEN")
 LARAVEL_API_URL = "https://api.cinema4u.xyz/api"
 search_results = {}
 
@@ -50,15 +51,15 @@ app = Client(
 
 # TMDB setup
 tmdb = TMDb()
-tmdb.api_key = os.getenv("TMDB_API_KEY")  # Store in .env file
+tmdb.api_key = os.getenv("TMDB_API_KEY")
 tmdb.language = "en"
 movie = Movie()
 tv = TV()
 
 site_connected = False
-timeout_duration = 20  # seconds
+timeout_duration = 20
 max_retries = 3
-retry_delay = 5  # seconds
+retry_delay = 5
 
 def show_timer():
     for i in range(timeout_duration):
@@ -72,7 +73,6 @@ def show_timer():
 
 def check_site_connection():
     global site_connected
-
     bot_name = socket.gethostname()
     headers = {
         "X-API-TOKEN": LARAVEL_API_TOKEN,
@@ -95,7 +95,6 @@ def check_site_connection():
                 headers=headers,
                 timeout=timeout_duration
             )
-
             site_connected = True
             timer_thread.join()
 
@@ -122,11 +121,30 @@ def check_site_connection():
             print(f"🚨 [Admin ID: {ADMIN_ID}] All retry attempts failed. Bypassing this connection attempt.")
             return
 
-# Start command handler with custom message, image, and buttons
+# Start command handler with user storage
 @app.on_message(filters.command("start"))
 async def start(client, message: Message):
-    user_name = message.from_user.first_name  # Get user's first name
-    # Custom message with user's name and credits
+    user = message.from_user
+    user_id = user.id
+    user_name = user.first_name
+    username = user.username or user_name
+
+    # NEW: Store user in MongoDB
+    try:
+        users.update_one(
+            {"user_id": user_id},
+            {
+                "$set": {
+                    "username": username,
+                    "first_name": user_name,
+                    "last_seen": time.time()
+                }
+            },
+            upsert=True
+        )
+    except Exception as e:
+        logging.error(f"Error storing user {user_id} in MongoDB: {e}")
+
     welcome_message = (
         f"👋 Hᴇʟʟᴏ, {user_name}!\n\n"
         f"🎥 I'ᴍ ʏᴏᴜʀ ᴘᴇʀsᴏɴᴀʟ Mᴏᴠɪᴇ & TV Sʜᴏᴡ ᴀssɪsᴛᴀɴᴛ. "
@@ -138,34 +156,107 @@ async def start(client, message: Message):
         f"👑 **Oᴡɴᴇʀ**: [Abdul Khalik](https://t.me/Attitude2688)"
     )
     
-    # Placeholder image URL (replace with your own image URL)
-    image_url = "https://telegra.ph/file/5d32303d074c709406576.jpg"  # Replace this with your actual image URL
-    
-    # Inline buttons
+    image_url = "https://telegra.ph/file/5d32303d074c709406576.jpg"
     buttons = [
         [InlineKeyboardButton("Aᴅᴅ ᴍᴇ ɪɴ ɢʀᴏᴜᴘ", url=f"https://t.me/{BOT_NAME}?startgroup=true")],
         [
             InlineKeyboardButton("API Sᴛᴀᴛᴜs", callback_data="api_status"),
             InlineKeyboardButton("DB Sᴛᴀᴛᴜs", callback_data="db_status")
         ],
-        [InlineKeyboardButton("Bᴏᴛ Dᴇᴠᴇʟᴏᴘᴇʀ", url="https://t.me/Attitude2688")]  # Replace with your support link
+        [InlineKeyboardButton("Bᴏᴛ Dᴇᴠᴇʟᴏᴘᴇʀ", url="https://t.me/Attitude2688")]
     ]
     
-    # Send the welcome message with image and buttons
     await client.send_photo(
         chat_id=message.chat.id,
         photo=image_url,
         caption=welcome_message,
         reply_markup=InlineKeyboardMarkup(buttons)
     )
-    
-# Callback query handler for buttons
+
+# NEW: Broadcast command handler
+@app.on_message(filters.command("broadcast") & filters.user(ADMIN_ID))
+async def broadcast(client: Client, message: Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.reply("🚫 You are not authorized to use this command.")
+        return
+
+    if len(message.text.split()) < 2:
+        await message.reply("⚠️ Usage: /broadcast <message>")
+        return
+
+    broadcast_message = message.text.split(maxsplit=1)[1]
+    if not broadcast_message:
+        await message.reply("⚠️ Please provide a valid message to broadcast.")
+        return
+
+    try:
+        user_list = users.find({}, {"user_id": 1})
+        total_users = users.count_documents({})
+    except Exception as e:
+        logging.error(f"Error fetching users from MongoDB: {e}")
+        await message.reply("❌ Error accessing user database.")
+        return
+
+    if total_users == 0:
+        await message.reply("😕 No users found to broadcast to.")
+        return
+
+    success_count = 0
+    failed_count = 0
+    loading_msg = await message.reply(f"📢 Broadcasting to {total_users} users...")
+
+    for user in user_list:
+        user_id = user["user_id"]
+        try:
+            await client.send_message(
+                chat_id=user_id,
+                text=broadcast_message
+            )
+            success_count += 1
+        except (pyrogram.errors.UserIsBlocked, pyrogram.errors.ChatInvalid, pyrogram.errors.UserDeactivated):
+            try:
+                users.delete_one({"user_id": user_id})
+                logging.info(f"Removed blocked/invalid user {user_id} from database")
+            except Exception as e:
+                logging.error(f"Error removing user {user_id} from MongoDB: {e}")
+            failed_count += 1
+        except Exception as e:
+            logging.warning(f"Failed to send broadcast to user {user_id}: {e}")
+            failed_count += 1
+        await asyncio.sleep(0.05)  # 50ms delay to avoid rate limits
+
+    await loading_msg.edit(
+        f"📢 Broadcast completed!\n"
+        f"✅ Successfully sent to: {success_count} users\n"
+        f"❌ Failed to send to: {failed_count} users"
+    )
+
+    logging.info(
+        f"Broadcast by Admin ID {ADMIN_ID}: "
+        f"Message: '{broadcast_message}', "
+        f"Total: {total_users}, Success: {success_count}, Failed: {failed_count}"
+    )
+
+# NEW: User count command handler
+@app.on_message(filters.command("usercount") & filters.user(ADMIN_ID))
+async def user_count(client: Client, message: Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.reply("🚫 You are not authorized to use this command.")
+        return
+
+    try:
+        total_users = users.count_documents({})
+        await message.reply(f"📊 Total users in database: {total_users}")
+    except Exception as e:
+        logging.error(f"Error fetching user count: {e}")
+        await message.reply("❌ Error accessing user database.")
+
+# Callback query handler
 @app.on_callback_query()
 async def handle_callback(client, callback_query):
     user_id = callback_query.from_user.id
     data = callback_query.data
 
-    # Handle API Status button
     if data == "api_status":
         if user_id != ADMIN_ID:
             await callback_query.answer("🚫 You are not authorized to check API status.", show_alert=True)
@@ -175,20 +266,17 @@ async def handle_callback(client, callback_query):
         await callback_query.message.reply(f"🔍 API connection status: {status}")
         return
 
-    # Handle DB Status button
     if data == "db_status":
         if user_id != ADMIN_ID:
             await callback_query.answer("🚫 You are not authorized to check DB status.", show_alert=True)
             return
         try:
-            # Check MongoDB connection
             mongo.server_info()
             await callback_query.message.reply("✅ Database is connected.")
         except Exception as e:
             await callback_query.message.reply(f"❌ Database error: {str(e)}")
         return
 
-    # Handle pagination (existing functionality)
     user_id = callback_query.from_user.id
     data = search_results.get(user_id)
     if not data:
@@ -208,7 +296,7 @@ async def handle_callback(client, callback_query):
     await callback_query.message.delete()
     await send_result(client, callback_query.message.chat.id, user_id, current_index, callback_query.message)
 
-# Admin-only /api command (existing functionality)
+# Admin-only /api command
 @app.on_message(filters.command("api"))
 async def api_command(client: Client, message: Message):
     user_id = message.from_user.id
@@ -226,8 +314,8 @@ async def api_command(client: Client, message: Message):
     status = "✅ Connected" if site_connected else "❌ Not Connected"
     await message.reply(f"🔍 Site connection status: {status}")
 
-# Search handler with year handling
-@app.on_message(filters.text & ~filters.command(["start", "api"]))
+# Search handler
+@app.on_message(filters.text & ~filters.command(["start", "api", "broadcast", "usercount"]))  # UPDATED: Added new commands
 async def search_movie_or_tv(client, message: Message):
     if not site_connected:
         await message.reply("🚫 The bot is currently not connected to the site. Please try again later.")
@@ -237,6 +325,22 @@ async def search_movie_or_tv(client, message: Message):
     user = message.from_user
     user_id = user.id
     username = user.username or user.first_name
+
+    # NEW: Store user during search
+    try:
+        users.update_one(
+            {"user_id": user_id},
+            {
+                "$set": {
+                    "username": username,
+                    "first_name": user.first_name,
+                    "last_seen": time.time()
+                }
+            },
+            upsert=True
+        )
+    except Exception as e:
+        logging.error(f"Error storing user {user_id} in MongoDB: {e}")
 
     await client.send_message(ADMIN_ID, f"🧐 User `{username}` searched for: `{query}`")
 
@@ -258,17 +362,14 @@ async def search_movie_or_tv(client, message: Message):
 
     loading_msg = await message.reply("**AI is finding your result...**")
 
-    # Step 1: Extract movie title and year from the query using regex
-    year_match = re.search(r'\b(\d{4})\b', query)  # Look for a 4-digit year
+    year_match = re.search(r'\b(\d{4})\b', query)
     search_year = year_match.group(1) if year_match else None
-    # Remove the year from the query to search only the title
     search_query = re.sub(r'\b\d{4}\b', '', query).strip().lower()
 
     if not search_query:
         await loading_msg.edit("⚠️ Please provide a valid movie or TV show name.")
         return
 
-    # Step 2: Search TMDB using the cleaned query (title only) with better error handling
     try:
         movie_results = movie.search(search_query)
         tv_results = tv.search(search_query)
@@ -286,7 +387,6 @@ async def search_movie_or_tv(client, message: Message):
         await loading_msg.edit("😕 No matching results found.")
         return
 
-    # Step 3: Filter results based on the year (if provided)
     filtered_results = []
     result_types = []
     if search_year:
@@ -298,11 +398,9 @@ async def search_movie_or_tv(client, message: Message):
                     filtered_results.append(result)
                     result_types.append("movie" if result in movie_results else "tv")
     else:
-        # If no year is provided, use all results
         filtered_results = results
         result_types = ["movie" if r in movie_results else "tv" for r in results]
 
-    # Step 4: If no exact year match but results exist, show closest matches with a message
     if not filtered_results and results and search_year:
         await loading_msg.edit(
             f"⚠️ No results found for '{search_query}' in {search_year}. Showing closest matches instead:"
@@ -319,12 +417,11 @@ async def search_movie_or_tv(client, message: Message):
         "results": result_ids,
         "types": result_types,
         "current_index": 0,
-        "timestamp": time.time()  # Add timestamp for cleanup
+        "timestamp": time.time()
     }
 
     await send_result(client, message.chat.id, user_id, 0, loading_msg)
 
-# Send result with better error handling for TMDB details
 async def send_result(client, chat_id, user_id, index, loading_msg):
     data = search_results.get(user_id)
     if not data:
@@ -397,26 +494,24 @@ async def send_result(client, chat_id, user_id, index, loading_msg):
 
     await loading_msg.delete()
 
-# Cleanup old search results (run within Pyrogram's event loop)
 async def cleanup_search_results():
     while True:
-        await asyncio.sleep(3600)  # Run hourly
+        await asyncio.sleep(3600)
         current_time = time.time()
         for user_id in list(search_results.keys()):
             if current_time - search_results[user_id].get("timestamp", 0) > 3600:
                 del search_results[user_id]
 
-# Start Bot and Cleanup Task
 if __name__ == "__main__":
     try:
+        # NEW: Check MongoDB connection
+        mongo.server_info()
+        logging.info("✅ Connected to MongoDB")
         check_site_connection()
-        # Start the bot
         app.start()
-        # Run cleanup_search_results within Pyrogram's event loop
+        logging.info("✅ Bot started successfully")
         app.loop.create_task(cleanup_search_results())
-        # Keep the bot running
         idle()
-        # Stop the bot gracefully
         app.stop()
     except Exception as e:
         logging.error(f"An error occurred: {e}")
