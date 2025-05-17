@@ -173,22 +173,20 @@ async def start(client, message: Message):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-# NEW: Broadcast command handler
+# Broadcast command handler
 @app.on_message(filters.command("broadcast") & filters.user(ADMIN_ID))
 async def broadcast(client: Client, message: Message):
     if message.from_user.id != ADMIN_ID:
         await message.reply("🚫 You are not authorized to use this command.")
         return
 
-    if len(message.text.split()) < 2:
-        await message.reply("⚠️ Usage: /broadcast <message>")
+    # Check if there's a message or photo
+    broadcast_message = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else None
+    if not broadcast_message and not message.photo:
+        await message.reply("⚠️ Usage: /broadcast <message> or send a photo with an optional caption.")
         return
 
-    broadcast_message = message.text.split(maxsplit=1)[1]
-    if not broadcast_message:
-        await message.reply("⚠️ Please provide a valid message to broadcast.")
-        return
-
+    # Get all users from MongoDB
     try:
         user_list = users.find({}, {"user_id": 1})
         total_users = users.count_documents({})
@@ -201,6 +199,7 @@ async def broadcast(client: Client, message: Message):
         await message.reply("😕 No users found to broadcast to.")
         return
 
+    # Initialize counters
     success_count = 0
     failed_count = 0
     loading_msg = await message.reply(f"📢 Broadcasting to {total_users} users...")
@@ -208,12 +207,22 @@ async def broadcast(client: Client, message: Message):
     for user in user_list:
         user_id = user["user_id"]
         try:
-            await client.send_message(
-                chat_id=user_id,
-                text=broadcast_message
-            )
+            if message.photo:
+                # Broadcast photo with optional caption
+                await client.send_photo(
+                    chat_id=user_id,
+                    photo=message.photo.file_id,
+                    caption=broadcast_message or ""
+                )
+            else:
+                # Broadcast text message
+                await client.send_message(
+                    chat_id=user_id,
+                    text=broadcast_message
+                )
             success_count += 1
         except (pyrogram.errors.UserIsBlocked, pyrogram.errors.ChatInvalid, pyrogram.errors.UserDeactivated):
+            # Remove blocked or invalid users
             try:
                 users.delete_one({"user_id": user_id})
                 logging.info(f"Removed blocked/invalid user {user_id} from database")
@@ -223,17 +232,22 @@ async def broadcast(client: Client, message: Message):
         except Exception as e:
             logging.warning(f"Failed to send broadcast to user {user_id}: {e}")
             failed_count += 1
-        await asyncio.sleep(0.05)  # 50ms delay to avoid rate limits
+        # Rate limit: 50ms delay (20 messages per second)
+        await asyncio.sleep(0.05)
 
+    # Update status
     await loading_msg.edit(
         f"📢 Broadcast completed!\n"
         f"✅ Successfully sent to: {success_count} users\n"
         f"❌ Failed to send to: {failed_count} users"
     )
 
+    # Log the broadcast
+    broadcast_type = "photo+text" if message.photo else "text"
     logging.info(
         f"Broadcast by Admin ID {ADMIN_ID}: "
-        f"Message: '{broadcast_message}', "
+        f"Type: {broadcast_type}, "
+        f"Message: '{broadcast_message or 'Photo with no caption'}', "
         f"Total: {total_users}, Success: {success_count}, Failed: {failed_count}"
     )
 
