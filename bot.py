@@ -25,7 +25,7 @@ MONGO_URI = os.getenv("MONGO_URI")
 mongo = MongoClient(MONGO_URI)
 db = mongo["movie_bot"]
 searches = db["searches"]
-users = db["users"]  # NEW: Collection for storing user data
+users = db["users"]
 
 # Admin Telegram ID
 ADMIN_ID = 6133440326
@@ -129,7 +129,6 @@ async def start(client, message: Message):
     user_name = user.first_name
     username = user.username or user_name
 
-    # NEW: Store user in MongoDB
     try:
         users.update_one(
             {"user_id": user_id},
@@ -152,10 +151,10 @@ async def start(client, message: Message):
         f"ᴀɴᴅ I’ʟʟ ғᴇᴛᴄʜ ᴅᴇᴛᴀɪʟs ɪɴsᴛᴀɴᴛʟʏ.\n\n"
         f"🚀 Lᴇᴛ's ɢᴇᴛ sᴛᴀʀᴛᴇᴅ!\n\n"
         f"🙌 **Cʀᴇᴅɪᴛs**:\n"
-        f"👨‍💻 **Dᴇᴠᴇʟᴏᴘᴇʀ**: [Abdul khalik](https://t.me/Attitude2688)\n" 
+        f"👨‍💻 **Dᴇᴠᴇʟᴏᴘᴇʀ**: [Abdul khalik](https://t.me/Attitude2688)\n"
         f"👑 **Oᴡɴᴇʀ**: [Abdul Khalik](https://t.me/Attitude2688)"
     )
-    
+
     image_url = "https://telegra.ph/file/5d32303d074c709406576.jpg"
     buttons = [
         [InlineKeyboardButton("Aᴅᴅ ᴍᴇ ɪɴ ɢʀᴏᴜᴘ", url=f"https://t.me/{BOT_NAME}?startgroup=true")],
@@ -165,7 +164,7 @@ async def start(client, message: Message):
         ],
         [InlineKeyboardButton("Bᴏᴛ Dᴇᴠᴇʟᴏᴘᴇʀ", url="https://t.me/Attitude2688")]
     ]
-    
+
     await client.send_photo(
         chat_id=message.chat.id,
         photo=image_url,
@@ -173,29 +172,38 @@ async def start(client, message: Message):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-# Broadcast command handler
-# Broadcast command handler
+# Updated Broadcast command handler to handle forwarded messages
 @app.on_message(filters.command("broadcast") & filters.user(ADMIN_ID))
 async def broadcast(client: Client, message: Message):
     if message.from_user.id != ADMIN_ID:
         await message.reply("🚫 You are not authorized to use this command.")
         return
 
+    # Check if the message is a reply to another message (e.g., forwarded message)
+    if message.reply_to_message:
+        target_message = message.reply_to_message
+    else:
+        target_message = message
+
     # Extract the broadcast message (caption or text)
     broadcast_message = None
-    if message.caption:  # For photos, check the caption
-        caption_parts = message.caption.split(maxsplit=1)
-        if len(caption_parts) > 1:  # If there's text after /broadcast
+    if target_message.caption:  # For photos with captions
+        caption_parts = target_message.caption.split(maxsplit=1)
+        if len(caption_parts) > 1:  # If there's text after /broadcast (in case of direct message)
             broadcast_message = caption_parts[1]
-        # If caption is just "/broadcast", broadcast_message remains None, but photo should still be broadcast
-    elif message.text:  # For text-only messages
-        text_parts = message.text.split(maxsplit=1)
+        # If caption exists but no additional text, use the caption as is (for forwarded messages)
+        else:
+            broadcast_message = target_message.caption
+    elif target_message.text:  # For text-only messages
+        text_parts = target_message.text.split(maxsplit=1)
         if len(text_parts) > 1:
             broadcast_message = text_parts[1]
+        else:
+            broadcast_message = target_message.text
 
     # Check if there's a valid broadcast (either a photo or text)
-    if not message.photo and not broadcast_message:
-        await message.reply("⚠️ Usage: /broadcast <message> or send a photo with an optional caption.")
+    if not target_message.photo and not broadcast_message:
+        await message.reply("⚠️ Usage: /broadcast <message> or send a photo with an optional caption, or reply to a message/photo to broadcast it.")
         return
 
     # Get all users from MongoDB
@@ -219,11 +227,11 @@ async def broadcast(client: Client, message: Message):
     for user in user_list:
         user_id = user["user_id"]
         try:
-            if message.photo:
+            if target_message.photo:
                 # Broadcast photo with optional caption
                 await client.send_photo(
                     chat_id=user_id,
-                    photo=message.photo.file_id,
+                    photo=target_message.photo.file_id,
                     caption=broadcast_message if broadcast_message else ""
                 )
             else:
@@ -234,7 +242,6 @@ async def broadcast(client: Client, message: Message):
                 )
             success_count += 1
         except (pyrogram.errors.UserIsBlocked, pyrogram.errors.ChatInvalid, pyrogram.errors.UserDeactivated):
-            # Remove blocked or invalid users
             try:
                 users.delete_one({"user_id": user_id})
                 logging.info(f"Removed blocked/invalid user {user_id} from database")
@@ -255,7 +262,7 @@ async def broadcast(client: Client, message: Message):
     )
 
     # Log the broadcast
-    broadcast_type = "photo+text" if message.photo else "text"
+    broadcast_type = "photo+text" if target_message.photo else "text"
     logging.info(
         f"Broadcast by Admin ID {ADMIN_ID}: "
         f"Type: {broadcast_type}, "
@@ -263,7 +270,7 @@ async def broadcast(client: Client, message: Message):
         f"Total: {total_users}, Success: {success_count}, Failed: {failed_count}"
     )
 
-# NEW: User count command handler
+# User count command handler
 @app.on_message(filters.command("usercount") & filters.user(ADMIN_ID))
 async def user_count(client: Client, message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -276,6 +283,45 @@ async def user_count(client: Client, message: Message):
     except Exception as e:
         logging.error(f"Error fetching user count: {e}")
         await message.reply("❌ Error accessing user database.")
+
+# NEW: Handler to delete messages with specific words, usernames, or URLs in groups
+@app.on_message(filters.group & ~filters.bot)
+async def filter_group_messages(client: Client, message: Message):
+    # List of bad words to filter
+    bad_words = [
+        "porn", "xxx", "sex", "nude", "adult", "free", "crypto", "bitcoin",
+        "earning", "money", "invest", "profit", "cash", "win", "lottery"
+    ]
+
+    # Regex patterns for URLs and usernames
+    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    username_pattern = r'@[a-zA-Z0-9_]+'
+
+    # Get the message text (or caption if it's a photo/video)
+    text_to_check = message.text or message.caption or ""
+
+    # Convert text to lowercase for case-insensitive matching
+    text_lower = text_to_check.lower()
+
+    # Check for bad words
+    has_bad_word = any(word in text_lower for word in bad_words)
+
+    # Check for URLs
+    has_url = bool(re.search(url_pattern, text_to_check))
+
+    # Check for usernames
+    has_username = bool(re.search(username_pattern, text_to_check))
+
+    # If any condition is met, delete the message
+    if has_bad_word or has_url or has_username:
+        try:
+            await message.delete()
+            logging.info(
+                f"Deleted message in group {message.chat.id} from user {message.from_user.id}: "
+                f"Reason - Bad word: {has_bad_word}, URL: {has_url}, Username: {has_username}"
+            )
+        except Exception as e:
+            logging.error(f"Failed to delete message in group {message.chat.id}: {e}")
 
 # Callback query handler
 @app.on_callback_query()
@@ -341,7 +387,7 @@ async def api_command(client: Client, message: Message):
     await message.reply(f"🔍 Site connection status: {status}")
 
 # Search handler
-@app.on_message(filters.text & ~filters.command(["start", "api", "broadcast", "usercount"]))  # UPDATED: Added new commands
+@app.on_message(filters.text & ~filters.command(["start", "api", "broadcast", "usercount"]))
 async def search_movie_or_tv(client, message: Message):
     if not site_connected:
         await message.reply("🚫 The bot is currently not connected to the site. Please try again later.")
@@ -352,7 +398,6 @@ async def search_movie_or_tv(client, message: Message):
     user_id = user.id
     username = user.username or user.first_name
 
-    # NEW: Store user during search
     try:
         users.update_one(
             {"user_id": user_id},
@@ -393,7 +438,7 @@ async def search_movie_or_tv(client, message: Message):
     search_query = re.sub(r'\b\d{4}\b', '', query).strip().lower()
 
     if not search_query:
-        await loading_msg.edit("⚠️ Please provide a valid movie or TV show name.")
+        await loading_msg.edit("⚠️ Please provide a valid movie or TVКУ show name.")
         return
 
     try:
@@ -530,7 +575,6 @@ async def cleanup_search_results():
 
 if __name__ == "__main__":
     try:
-        # NEW: Check MongoDB connection
         mongo.server_info()
         logging.info("✅ Connected to MongoDB")
         check_site_connection()
