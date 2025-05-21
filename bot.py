@@ -27,6 +27,9 @@ db = mongo["movie_bot"]
 searches = db["searches"]
 users = db["users"]
 
+# Add index for better performance
+users.create_index("user_id", unique=True)
+
 # Admin Telegram ID
 ADMIN_ID = 6133440326
 
@@ -125,6 +128,11 @@ def check_site_connection():
 @app.on_message(filters.command("start"))
 async def start(client, message: Message):
     user = message.from_user
+    if user is None:
+        await message.reply("⚠️ This command is not supported for anonymous users or channels.")
+        logging.warning(f"Received /start command with no user: {message.chat.id}")
+        return
+
     user_id = user.id
     user_name = user.first_name
     username = user.username or user_name
@@ -175,7 +183,13 @@ async def start(client, message: Message):
 # Updated Broadcast command handler to handle forwarded messages
 @app.on_message(filters.command("broadcast") & filters.user(ADMIN_ID))
 async def broadcast(client: Client, message: Message):
-    if message.from_user.id != ADMIN_ID:
+    user = message.from_user
+    if user is None:
+        await message.reply("⚠️ This command is not supported for anonymous users or channels.")
+        logging.warning(f"Received /broadcast command with no user: {message.chat.id}")
+        return
+
+    if user.id != ADMIN_ID:
         await message.reply("🚫 You are not authorized to use this command.")
         return
 
@@ -191,7 +205,6 @@ async def broadcast(client: Client, message: Message):
         caption_parts = target_message.caption.split(maxsplit=1)
         if len(caption_parts) > 1:  # If there's text after /broadcast (in case of direct message)
             broadcast_message = caption_parts[1]
-        # If caption exists but no additional text, use the caption as is (for forwarded messages)
         else:
             broadcast_message = target_message.caption
     elif target_message.text:  # For text-only messages
@@ -273,7 +286,13 @@ async def broadcast(client: Client, message: Message):
 # User count command handler
 @app.on_message(filters.command("usercount") & filters.user(ADMIN_ID))
 async def user_count(client: Client, message: Message):
-    if message.from_user.id != ADMIN_ID:
+    user = message.from_user
+    if user is None:
+        await message.reply("⚠️ This command is not supported for anonymous users or channels.")
+        logging.warning(f"Received /usercount command with no user: {message.chat.id}")
+        return
+
+    if user.id != ADMIN_ID:
         await message.reply("🚫 You are not authorized to use this command.")
         return
 
@@ -284,9 +303,13 @@ async def user_count(client: Client, message: Message):
         logging.error(f"Error fetching user count: {e}")
         await message.reply("❌ Error accessing user database.")
 
-# NEW: Handler to delete messages with specific words, usernames, or URLs in groups
+# Handler to delete messages with specific words, usernames, or URLs in groups
 @app.on_message(filters.group & ~filters.bot)
 async def filter_group_messages(client: Client, message: Message):
+    # Skip if the message has no sender (e.g., service messages)
+    if message.from_user is None:
+        return
+
     # List of bad words to filter
     bad_words = [
         "porn", "xxx", "sex", "nude", "adult", "free", "crypto", "bitcoin",
@@ -371,8 +394,14 @@ async def handle_callback(client, callback_query):
 # Admin-only /api command
 @app.on_message(filters.command("api"))
 async def api_command(client: Client, message: Message):
-    user_id = message.from_user.id
-    user_name = message.from_user.first_name
+    user = message.from_user
+    if user is None:
+        await message.reply("⚠️ This command is not supported for anonymous users or channels.")
+        logging.warning(f"Received /api command with no user: {message.chat.id}")
+        return
+
+    user_id = user.id
+    user_name = user.first_name
 
     if user_id != ADMIN_ID:
         await message.reply("🚫 You are not authorized to use this command.")
@@ -393,8 +422,14 @@ async def search_movie_or_tv(client, message: Message):
         await message.reply("🚫 The bot is currently not connected to the site. Please try again later.")
         return
 
-    query = message.text.strip()
+    # Check if the message has a valid sender (from_user)
     user = message.from_user
+    if user is None:
+        await message.reply("⚠️ This command is not supported for anonymous users, channels, or service messages.")
+        logging.warning(f"Received message with no user: {message.chat.id}")
+        return
+
+    query = message.text.strip()
     user_id = user.id
     username = user.username or user.first_name
 
@@ -438,7 +473,7 @@ async def search_movie_or_tv(client, message: Message):
     search_query = re.sub(r'\b\d{4}\b', '', query).strip().lower()
 
     if not search_query:
-        await loading_msg.edit("⚠️ Please provide a valid movie or TVКУ show name.")
+        await loading_msg.edit("⚠️ Please provide a valid movie or TV show name.")
         return
 
     try:
@@ -573,6 +608,13 @@ async def cleanup_search_results():
             if current_time - search_results[user_id].get("timestamp", 0) > 3600:
                 del search_results[user_id]
 
+# Periodic cleanup of inactive users
+async def cleanup_users():
+    while True:
+        await asyncio.sleep(24 * 3600)  # Run daily
+        threshold = time.time() - 30 * 24 * 3600  # 30 days
+        users.delete_many({"last_seen": {"$lt": threshold}})
+
 if __name__ == "__main__":
     try:
         mongo.server_info()
@@ -581,6 +623,7 @@ if __name__ == "__main__":
         app.start()
         logging.info("✅ Bot started successfully")
         app.loop.create_task(cleanup_search_results())
+        app.loop.create_task(cleanup_users())
         idle()
         app.stop()
     except Exception as e:
