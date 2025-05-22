@@ -291,7 +291,7 @@ async def user_count(client: Client, message: Message):
         logging.error(f"Error fetching user count: {e}")
         await message.reply("❌ Error accessing user database.")
 
-# NEW: Handler to delete messages with specific words, usernames, or URLs in groups
+# Handler to delete messages with specific words, usernames, or URLs in groups
 @app.on_message(filters.group & ~filters.bot)
 async def filter_group_messages(client: Client, message: Message):
     # Skip if the message has no sender (e.g., service messages)
@@ -360,8 +360,9 @@ async def handle_callback(client, callback_query):
             await callback_query.message.reply(f"❌ Database error: {str(e)}")
         return
 
-    user_id = callback_query.from_user.id
-    data = search_results.get(user_id)
+    # Use user_id as the key if available, otherwise use chat_id
+    key = user_id if user_id else callback_query.message.chat.id
+    data = search_results.get(key)
     if not data:
         await callback_query.answer("No search data found.", show_alert=True)
         return
@@ -375,9 +376,9 @@ async def handle_callback(client, callback_query):
         await callback_query.answer("Invalid action.", show_alert=True)
         return
 
-    search_results[user_id]["current_index"] = current_index
+    search_results[key]["current_index"] = current_index
     await callback_query.message.delete()
-    await send_result(client, callback_query.message.chat.id, user_id, current_index, callback_query.message)
+    await send_result(client, callback_query.message.chat.id, key, current_index, callback_query.message)
 
 # Admin-only /api command
 @app.on_message(filters.command("api"))
@@ -406,29 +407,33 @@ async def search_movie_or_tv(client, message: Message):
 
     query = message.text.strip()
     user = message.from_user
+
+    # Handle user information for logging, even if user is None
     if user is None:
-        await message.reply("⚠️ This command is not supported for anonymous users, channels, or service messages.")
+        user_id = None
+        username = "Anonymous"
         logging.warning(f"Received message with no user: {message.chat.id}")
-        return
+    else:
+        user_id = user.id
+        username = user.username or user.first_name
 
-    user_id = user.id
-    username = user.username or user.first_name
+        # Store user in MongoDB if user exists
+        try:
+            users.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "username": username,
+                        "first_name": user.first_name,
+                        "last_seen": time.time()
+                    }
+                },
+                upsert=True
+            )
+        except Exception as e:
+            logging.error(f"Error storing user {user_id} in MongoDB: {e}")
 
-    try:
-        users.update_one(
-            {"user_id": user_id},
-            {
-                "$set": {
-                    "username": username,
-                    "first_name": user.first_name,
-                    "last_seen": time.time()
-                }
-            },
-            upsert=True
-        )
-    except Exception as e:
-        logging.error(f"Error storing user {user_id} in MongoDB: {e}")
-
+    # Log the search query to the admin
     await client.send_message(ADMIN_ID, f"🧐 User `{username}` searched for: `{query}`")
 
     headers = {
@@ -437,10 +442,11 @@ async def search_movie_or_tv(client, message: Message):
         "Accept": "application/json"
     }
 
+    # Log the search query to the Laravel API
     try:
         requests.post(
             "https://api.hindicinema.xyz/api/log-search",
-            json={"user_id": user_id, "username": username, "query": query},
+            json={"user_id": user_id if user_id else "anonymous", "username": username, "query": query},
             headers=headers,
             timeout=10
         )
@@ -500,17 +506,19 @@ async def search_movie_or_tv(client, message: Message):
         return
 
     result_ids = [r.id for r in filtered_results]
-    search_results[user_id] = {
+    # Use chat_id as the key if user_id is None (e.g., for anonymous users)
+    key = user_id if user_id else message.chat.id
+    search_results[key] = {
         "results": result_ids,
         "types": result_types,
         "current_index": 0,
         "timestamp": time.time()
     }
 
-    await send_result(client, message.chat.id, user_id, 0, loading_msg)
+    await send_result(client, message.chat.id, key, 0, loading_msg)
 
-async def send_result(client, chat_id, user_id, index, loading_msg):
-    data = search_results.get(user_id)
+async def send_result(client, chat_id, key, index, loading_msg):
+    data = search_results.get(key)
     if not data:
         await client.send_message(chat_id, "No search data found.")
         return
@@ -585,11 +593,11 @@ async def cleanup_search_results():
     while True:
         await asyncio.sleep(3600)
         current_time = time.time()
-        for user_id in list(search_results.keys()):
-            if current_time - search_results[user_id].get("timestamp", 0) > 3600:
-                del search_results[user_id]
+        for key in list(search_results.keys()):
+            if current_time - search_results[key].get("timestamp", 0) > 3600:
+                del search_results[key]
 
-# NEW: Periodic cleanup of inactive users
+# Periodic cleanup of inactive users
 async def cleanup_users():
     while True:
         await asyncio.sleep(24 * 3600)  # Run daily
