@@ -398,7 +398,7 @@ async def api_command(client: Client, message: Message):
     status = "✅ Connected" if site_connected else "❌ Not Connected"
     await message.reply(f"🔍 Site connection status: {status}")
 
-# Search handler
+# Updated Search handler to handle anonymous users in groups
 @app.on_message(filters.text & ~filters.command(["start", "api", "broadcast", "usercount"]))
 async def search_movie_or_tv(client, message: Message):
     if not site_connected:
