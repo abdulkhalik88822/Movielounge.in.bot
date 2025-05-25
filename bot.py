@@ -234,7 +234,8 @@ async def broadcast(client: Client, message: Message):
 
     # Initialize counters
     success_count = 0
-    failed_count = 0
+    ban_bot_count = 0  # For blocked or invalid users
+    not_complete_count = 0  # For other failures
     batch_size = 100  # Update status every 100 users
     loading_msg = await message.reply(f"📢 Broadcasting to {total_users} users...")
 
@@ -274,29 +275,32 @@ async def broadcast(client: Client, message: Message):
             try:
                 users.delete_one({"user_id": user_id})
                 logging.info(f"Removed blocked/invalid user {user_id} from database")
+                ban_bot_count += 1
             except Exception as e:
                 logging.error(f"Error removing user {user_id} from MongoDB: {e}")
-            failed_count += 1
+                ban_bot_count += 1
         except Exception as e:
             logging.warning(f"Failed to send broadcast to user {user_id}: {e}")
-            failed_count += 1
+            not_complete_count += 1
 
         # Update status every batch_size users
-        if (i + 1) % batch_size == 0:
+        if (i + 1) % batch_sizetransactional == 0:
             await loading_msg.edit(
                 f"📢 Broadcasting in progress...\n"
-                f"🔄 Sent to: {success_count + failed_count}/{total_users} users\n"
-                f"✅ Success: {success_count}\n"
-                f"❌ Failed: {failed_count}"
+                f"🔄 Total Users: {total_users}\n"
+                f"✅ Completed: {success_count}\n"
+                f"🚫 Ban Bot: {ban_bot_count}\n"
+                f"❌ Not Complete: {not_complete_count}"
             )
         await asyncio.sleep(0.05)  # Rate limit: 50ms delay
 
     # Final status update
     await loading_msg.edit(
         f"📢 Broadcast completed!\n"
-        f"🔄 Total users: {total_users}\n"
-        f"✅ Successfully sent to: {success_count} users\n"
-        f"❌ Failed to send to: {failed_count} users"
+        f"🔄 Total Users: {total_users}\n"
+        f"✅ Completed: {success_count}\n"
+        f"🚫 Ban Bot: {ban_bot_count}\n"
+        f"❌ Not Complete: {not_complete_count}"
     )
 
     # Log the broadcast
@@ -306,7 +310,7 @@ async def broadcast(client: Client, message: Message):
         f"Type: {broadcast_type}, "
         f"Message: '{broadcast_message or 'Media with no caption'}', "
         f"Buttons: {broadcast_reply_markup is not None}, "
-        f"Total: {total_users}, Success: {success_count}, Failed: {failed_count}"
+        f"Total Users: {total_users}, Completed: {success_count}, Ban Bot: {ban_bot_count}, Not Complete: {not_complete_count}"
     )
 
 # User count command handler
