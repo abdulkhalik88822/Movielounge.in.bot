@@ -18,14 +18,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Logging configuration
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, filename='bot.log', format='%(asctime)s - %(levelname)s - %(message)s')
 
 # MongoDB Setup
 MONGO_URI = os.getenv("MONGO_URI")
 mongo = MongoClient(MONGO_URI)
 db = mongo["movie_bot"]
 searches = db["searches"]
-users = db["users"]  # NEW: Collection for storing user data
+users = db["users"]  # Collection for storing user data
 
 # Admin Telegram ID
 ADMIN_ID = 6133440326
@@ -129,7 +129,7 @@ async def start(client, message: Message):
     user_name = user.first_name
     username = user.username or user_name
 
-    # NEW: Store user in MongoDB
+    # Store user in MongoDB
     try:
         users.update_one(
             {"user_id": user_id},
@@ -174,28 +174,42 @@ async def start(client, message: Message):
     )
 
 # Broadcast command handler
-# Broadcast command handler
 @app.on_message(filters.command("broadcast") & filters.user(ADMIN_ID))
 async def broadcast(client: Client, message: Message):
     if message.from_user.id != ADMIN_ID:
         await message.reply("🚫 You are not authorized to use this command.")
         return
 
-    # Extract the broadcast message (caption or text)
-    broadcast_message = None
-    if message.caption:  # For photos, check the caption
-        caption_parts = message.caption.split(maxsplit=1)
-        if len(caption_parts) > 1:  # If there's text after /broadcast
-            broadcast_message = caption_parts[1]
-        # If caption is just "/broadcast", broadcast_message remains None, but photo should still be broadcast
-    elif message.text:  # For text-only messages
-        text_parts = message.text.split(maxsplit=1)
-        if len(text_parts) > 1:
-            broadcast_message = text_parts[1]
+    # Check if the message is a reply to another message
+    target_message = message.reply_to_message if message.reply_to_message else message
 
-    # Check if there's a valid broadcast (either a photo or text)
-    if not message.photo and not broadcast_message:
-        await message.reply("⚠️ Usage: /broadcast <message> or send a photo with an optional caption.")
+    # Extract broadcast content (text or photo + caption)
+    broadcast_message = None
+    broadcast_photo = None
+    broadcast_video = None
+    broadcast_document = None
+
+    if target_message.text:
+        text_parts = target_message.text.split(maxsplit=1)
+        if len(text_parts) > 1:  # If there's text after /broadcast or in replied message
+            broadcast_message = text_parts[1] if target_message == message else target_message.text
+    elif target_message.caption:
+        caption_parts = target_message.caption.split(maxsplit=1)
+        if len(caption_parts) > 1:  # If there's a caption after /broadcast or in replied message
+            broadcast_message = caption_parts[1] if target_message == message else target_message.caption
+        else:
+            broadcast_message = target_message.caption or ""
+    
+    if target_message.photo:
+        broadcast_photo = target_message.photo.file_id
+    elif target_message.video:
+        broadcast_video = target_message.video.file_id
+    elif target_message.document:
+        broadcast_document = target_message.document.file_id
+
+    # Check if there's valid content to broadcast
+    if not (broadcast_message or broadcast_photo or broadcast_video or broadcast_document):
+        await message.reply("⚠️ Please provide a valid message, photo, video, or document to broadcast, or reply to a message.")
         return
 
     # Get all users from MongoDB
@@ -214,27 +228,38 @@ async def broadcast(client: Client, message: Message):
     # Initialize counters
     success_count = 0
     failed_count = 0
+    batch_size = 100  # Update status every 100 users
     loading_msg = await message.reply(f"📢 Broadcasting to {total_users} users...")
 
-    for user in user_list:
+    # Broadcast to users
+    for i, user in enumerate(user_list):
         user_id = user["user_id"]
         try:
-            if message.photo:
-                # Broadcast photo with optional caption
+            if broadcast_photo:
                 await client.send_photo(
                     chat_id=user_id,
-                    photo=message.photo.file_id,
-                    caption=broadcast_message if broadcast_message else ""
+                    photo=broadcast_photo,
+                    caption=broadcast_message or ""
+                )
+            elif broadcast_video:
+                await client.send_video(
+                    chat_id=user_id,
+                    video=broadcast_video,
+                    caption=broadcast_message or ""
+                )
+            elif broadcast_document:
+                await client.send_document(
+                    chat_id=user_id,
+                    document=broadcast_document,
+                    caption=broadcast_message or ""
                 )
             else:
-                # Broadcast text message
                 await client.send_message(
                     chat_id=user_id,
                     text=broadcast_message
                 )
             success_count += 1
         except (pyrogram.errors.UserIsBlocked, pyrogram.errors.ChatInvalid, pyrogram.errors.UserDeactivated):
-            # Remove blocked or invalid users
             try:
                 users.delete_one({"user_id": user_id})
                 logging.info(f"Removed blocked/invalid user {user_id} from database")
@@ -244,26 +269,35 @@ async def broadcast(client: Client, message: Message):
         except Exception as e:
             logging.warning(f"Failed to send broadcast to user {user_id}: {e}")
             failed_count += 1
-        # Rate limit: 50ms delay (20 messages per second)
-        await asyncio.sleep(0.05)
 
-    # Update status
+        # Update status every batch_size users
+        if (i + 1) % batch_size == 0:
+            await loading_msg.edit(
+                f"📢 Broadcasting in progress...\n"
+                f"🔄 Sent to: {success_count + failed_count}/{total_users} users\n"
+                f"✅ Success: {success_count}\n"
+                f"❌ Failed: {failed_count}"
+            )
+        await asyncio.sleep(0.05)  # Rate limit: 50ms delay
+
+    # Final status update
     await loading_msg.edit(
         f"📢 Broadcast completed!\n"
+        f"🔄 Total users: {total_users}\n"
         f"✅ Successfully sent to: {success_count} users\n"
         f"❌ Failed to send to: {failed_count} users"
     )
 
     # Log the broadcast
-    broadcast_type = "photo+text" if message.photo else "text"
+    broadcast_type = "photo" if broadcast_photo else "video" if broadcast_video else "document" if broadcast_document else "text"
     logging.info(
         f"Broadcast by Admin ID {ADMIN_ID}: "
         f"Type: {broadcast_type}, "
-        f"Message: '{broadcast_message or 'Photo with no caption'}', "
+        f"Message: '{broadcast_message or 'Media with no caption'}', "
         f"Total: {total_users}, Success: {success_count}, Failed: {failed_count}"
     )
 
-# NEW: User count command handler
+# User count command handler
 @app.on_message(filters.command("usercount") & filters.user(ADMIN_ID))
 async def user_count(client: Client, message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -341,7 +375,7 @@ async def api_command(client: Client, message: Message):
     await message.reply(f"🔍 Site connection status: {status}")
 
 # Search handler
-@app.on_message(filters.text & ~filters.command(["start", "api", "broadcast", "usercount"]))  # UPDATED: Added new commands
+@app.on_message(filters.text & ~filters.command(["start", "api", "broadcast", "usercount"]))
 async def search_movie_or_tv(client, message: Message):
     if not site_connected:
         await message.reply("🚫 The bot is currently not connected to the site. Please try again later.")
@@ -352,7 +386,7 @@ async def search_movie_or_tv(client, message: Message):
     user_id = user.id
     username = user.username or user.first_name
 
-    # NEW: Store user during search
+    # Store user during search
     try:
         users.update_one(
             {"user_id": user_id},
@@ -530,7 +564,7 @@ async def cleanup_search_results():
 
 if __name__ == "__main__":
     try:
-        # NEW: Check MongoDB connection
+        # Check MongoDB connection
         mongo.server_info()
         logging.info("✅ Connected to MongoDB")
         check_site_connection()
