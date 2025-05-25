@@ -183,12 +183,14 @@ async def broadcast(client: Client, message: Message):
     # Check if the message is a reply to another message
     target_message = message.reply_to_message if message.reply_to_message else message
 
-    # Extract broadcast content (text or photo + caption)
+    # Extract broadcast content (text, photo, video, document, or buttons)
     broadcast_message = None
     broadcast_photo = None
     broadcast_video = None
     broadcast_document = None
+    broadcast_reply_markup = None
 
+    # Extract text or caption
     if target_message.text:
         text_parts = target_message.text.split(maxsplit=1)
         if len(text_parts) > 1:  # If there's text after /broadcast or in replied message
@@ -199,13 +201,18 @@ async def broadcast(client: Client, message: Message):
             broadcast_message = caption_parts[1] if target_message == message else target_message.caption
         else:
             broadcast_message = target_message.caption or ""
-    
+
+    # Extract media
     if target_message.photo:
         broadcast_photo = target_message.photo.file_id
     elif target_message.video:
         broadcast_video = target_message.video.file_id
     elif target_message.document:
         broadcast_document = target_message.document.file_id
+
+    # Extract inline keyboard (URL buttons)
+    if target_message.reply_markup and isinstance(target_message.reply_markup, InlineKeyboardMarkup):
+        broadcast_reply_markup = target_message.reply_markup
 
     # Check if there's valid content to broadcast
     if not (broadcast_message or broadcast_photo or broadcast_video or broadcast_document):
@@ -239,24 +246,28 @@ async def broadcast(client: Client, message: Message):
                 await client.send_photo(
                     chat_id=user_id,
                     photo=broadcast_photo,
-                    caption=broadcast_message or ""
+                    caption=broadcast_message or "",
+                    reply_markup=broadcast_reply_markup
                 )
             elif broadcast_video:
                 await client.send_video(
                     chat_id=user_id,
                     video=broadcast_video,
-                    caption=broadcast_message or ""
+                    caption=broadcast_message or "",
+                    reply_markup=broadcast_reply_markup
                 )
             elif broadcast_document:
                 await client.send_document(
                     chat_id=user_id,
                     document=broadcast_document,
-                    caption=broadcast_message or ""
+                    caption=broadcast_message or "",
+                    reply_markup=broadcast_reply_markup
                 )
             else:
                 await client.send_message(
                     chat_id=user_id,
-                    text=broadcast_message
+                    text=broadcast_message,
+                    reply_markup=broadcast_reply_markup
                 )
             success_count += 1
         except (pyrogram.errors.UserIsBlocked, pyrogram.errors.ChatInvalid, pyrogram.errors.UserDeactivated):
@@ -294,6 +305,7 @@ async def broadcast(client: Client, message: Message):
         f"Broadcast by Admin ID {ADMIN_ID}: "
         f"Type: {broadcast_type}, "
         f"Message: '{broadcast_message or 'Media with no caption'}', "
+        f"Buttons: {broadcast_reply_markup is not None}, "
         f"Total: {total_users}, Success: {success_count}, Failed: {failed_count}"
     )
 
