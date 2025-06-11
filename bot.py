@@ -72,6 +72,7 @@ def show_timer():
         sys.stdout.write("\n")
 
 def check_site_connection():
+def check_site_connection():
     global site_connected
     bot_name = socket.gethostname()
     headers = {
@@ -89,6 +90,8 @@ def check_site_connection():
         timer_thread.start()
 
         try:
+            # Test DNS resolution first
+            socket.gethostbyname('api.hindicinema.xyz')
             response = requests.post(
                 LARAVEL_API_URL,
                 json={"bot_name": bot_name, "status": "online"},
@@ -102,16 +105,20 @@ def check_site_connection():
                 print(f"\n✅ [Admin ID: {ADMIN_ID}] Successfully connected to Laravel site.")
                 return
             else:
-                try:
-                    error_detail = response.json()
-                except ValueError:
-                    error_detail = response.text
+                error_detail = response.json() if response.text else response.text
                 print(f"\n❌ [Admin ID: {ADMIN_ID}] Status: {response.status_code}, Response: {error_detail}")
+                logging.error(f"API response error: {response.status_code} - {error_detail}")
 
+        except socket.gaierror as e:
+            site_connected = False
+            timer_thread.join()
+            print(f"\n❌ [Admin ID: {ADMIN_ID}] DNS resolution failed: {str(e)}")
+            logging.error(f"DNS resolution error for api.hindicinema.xyz: {str(e)}")
         except requests.exceptions.RequestException as e:
             site_connected = False
             timer_thread.join()
-            print(f"\n❌ [Admin ID: {ADMIN_ID}] Error: {str(e)}")
+            print(f"\n❌ [Admin ID: {ADMIN_ID}] Connection error: {str(e)}")
+            logging.error(f"API connection error: {str(e)}")
 
         if attempt < max_retries:
             wait_time = retry_delay * attempt
@@ -119,6 +126,11 @@ def check_site_connection():
             time.sleep(wait_time)
         else:
             print(f"🚨 [Admin ID: {ADMIN_ID}] All retry attempts failed. Bypassing this connection attempt.")
+            # Notify admin via Telegram
+            try:
+                app.send_message(ADMIN_ID, f"⚠️ Bot failed to connect to {LARAVEL_API_URL}. Check DNS or server status.")
+            except Exception as e:
+                logging.error(f"Failed to notify admin: {e}")
             return
 
 # Start command handler with user storage
@@ -579,9 +591,17 @@ if __name__ == "__main__":
         # Check MongoDB connection
         mongo.server_info()
         logging.info("✅ Connected to MongoDB")
-        check_site_connection()
+        check_site_connection()  # Initial connection check
         app.start()
         logging.info("✅ Bot started successfully")
+        
+        # Start a task to periodically check connection
+        async def periodic_check():
+            while True:
+                await asyncio.sleep(300)  # Check every 5 minutes
+                check_site_connection()
+
+        app.loop.create_task(periodic_check())
         app.loop.create_task(cleanup_search_results())
         idle()
         app.stop()
