@@ -349,10 +349,6 @@ async def handle_callback(client, callback_query):
             await callback_query.message.reply(f"❌ Database error: {str(e)}")
         return
 
-    if data == "how_to_download":
-        await callback_query.answer("📥 Visit https://hindicinema.xyz/videos/how-to-download.mp4 for download instructions!", show_alert=True)
-        return
-
     user_id = callback_query.from_user.id
     data = search_results.get(user_id)
     if not data:
@@ -543,8 +539,8 @@ async def send_result(client, chat_id, user_id, index, loading_msg):
     if nav_buttons:
         buttons.append(nav_buttons)
 
-    # Add "How to Download" button
-    buttons.append([InlineKeyboardButton("How to Download", callback_data="how_to_download")])
+    # Add "How to Download" button with video link
+    buttons.append([InlineKeyboardButton("How to Download", url="https://hindicinema.xyz/videos/how-to-download.mp4")])
 
     # Send the message with updated buttons
     res_id = result_ids[index]
