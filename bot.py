@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO, filename='bot.log', format='%(asctime)s 
 
 # MongoDB Setup
 MONGO_URI = os.getenv("MONGO_URI")
-mongo = MongoClient(MONGO_URI)
+mongo = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)  # Add timeout to avoid hanging
 db = mongo["movie_bot"]
 searches = db["searches"]
 users = db["users"]  # Collection for storing user data
@@ -38,7 +38,7 @@ BOT_NAME = "DD_search_movie_bot"
 
 # Laravel API Configuration
 LARAVEL_API_TOKEN = os.getenv("LARAVEL_API_TOKEN")
-LARAVEL_API_URL = "https://hindicinema.xyz/api"
+LARAVEL_API_URL = os.getenv("LARAVEL_API_URL", "https://hindicinema.xyz/api")  # Default value
 search_results = {}
 
 # Pyrogram Client
@@ -46,7 +46,8 @@ app = Client(
     "movie_bot",
     bot_token=BOT_TOKEN,
     api_id=API_ID,
-    api_hash=API_HASH
+    api_hash=API_HASH,
+    workers=4  # Optimize worker threads
 )
 
 # TMDB setup
@@ -349,6 +350,19 @@ async def handle_callback(client, callback_query):
             await callback_query.message.reply(f"❌ Database error: {str(e)}")
         return
 
+    if data == "how_to_download":
+        try:
+            await client.send_video(
+                chat_id=callback_query.message.chat.id,
+                video="https://hindicinema.xyz/videos/how-to-download.mp4",
+                caption="📥 How to Download Instructions"
+            )
+            await callback_query.answer("✅ Video sent!", show_alert=True)
+        except Exception as e:
+            logging.error(f"Error sending video: {e}")
+            await callback_query.answer("❌ Failed to send video. Please try again later.", show_alert=True)
+        return
+
     user_id = callback_query.from_user.id
     data = search_results.get(user_id)
     if not data:
@@ -390,8 +404,8 @@ async def api_command(client: Client, message: Message):
 @app.on_message(filters.text & ~filters.command(["start", "api", "broadcast", "usercount"]))
 async def search_movie_or_tv(client, message: Message):
     if not site_connected:
-        await message.reply("🚫 The bot is currently not connected to the site. Please try again later.")
-        return
+        await message.reply("🚫 The bot is currently not connected to the site. Some features may be limited. Please try again later or contact admin.")
+        return  # Continue execution even if site is not connected
 
     query = message.text.strip()
     user = message.from_user
@@ -414,23 +428,22 @@ async def search_movie_or_tv(client, message: Message):
     except Exception as e:
         logging.error(f"Error storing user {user_id} in MongoDB: {e}")
 
-    await client.send_message(ADMIN_ID, f"🧐 User `{username}` searched for: `{query}`")
-
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    }
-
-    try:
-        requests.post(
-            "https://api.hindicinema.xyz/api/log-search",
-            json={"user_id": user_id, "username": username, "query": query},
-            headers=headers,
-            timeout=10
-        )
-    except Exception as e:
-        logging.warning(f"Failed to send search query to Laravel site: {e}")
+    if site_connected:
+        await client.send_message(ADMIN_ID, f"🧐 User `{username}` searched for: `{query}`")
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        try:
+            requests.post(
+                "https://api.hindicinema.xyz/api/log-search",
+                json={"user_id": user_id, "username": username, "query": query},
+                headers=headers,
+                timeout=10
+            )
+        except Exception as e:
+            logging.warning(f"Failed to send search query to Laravel site: {e}")
 
     loading_msg = await message.reply("**AI is finding your result...**")
 
@@ -540,7 +553,7 @@ async def send_result(client, chat_id, user_id, index, loading_msg):
         buttons.append(nav_buttons)
 
     # Add "How to Download" button with video link
-    buttons.append([InlineKeyboardButton("How to Download", url="https://hindicinema.xyz/videos/how-to-download.mp4")])
+    buttons.append([InlineKeyboardButton("How to Download", callback_data="how_to_download")])
 
     # Send the message with updated buttons
     res_id = result_ids[index]
@@ -572,22 +585,38 @@ async def send_result(client, chat_id, user_id, index, loading_msg):
 
 async def cleanup_search_results():
     while True:
-        await asyncio.sleep(3600)
+        await asyncio.sleep(3600)  # Clean up every hour
         current_time = time.time()
         for user_id in list(search_results.keys()):
             if current_time - search_results[user_id].get("timestamp", 0) > 3600:
                 del search_results[user_id]
+        logging.info(f"Cleaned up stale search results. Remaining keys: {len(search_results)}")
 
 if __name__ == "__main__":
     try:
-        # Check MongoDB connection
-        mongo.server_info()
-        logging.info("✅ Connected to MongoDB")
+        # Check MongoDB connection with retry
+        for attempt in range(3):
+            try:
+                mongo.server_info()
+                logging.info("✅ Connected to MongoDB")
+                break
+            except Exception as e:
+                logging.error(f"MongoDB connection attempt {attempt + 1} failed: {e}")
+                time.sleep(5)
+        else:
+            logging.error("❌ Failed to connect to MongoDB after 3 attempts")
+            sys.exit(1)
+
+        # Check Laravel API connection (non-blocking)
         check_site_connection()
+
         app.start()
         logging.info("✅ Bot started successfully")
         app.loop.create_task(cleanup_search_results())
         idle()
-        app.stop()
     except Exception as e:
         logging.error(f"An error occurred: {e}")
+    finally:
+        app.stop()
+        mongo.close()
+        logging.info("✅ Bot and MongoDB connection closed")
